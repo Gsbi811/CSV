@@ -20,73 +20,82 @@ $processed_rows = 0;
 $merged_rows = 0;
 
 // =========================================================================
-// FUNCIÓN CRÍTICA DE LECTURA: Normalización AGRESIVA de Encabezados y Codificación
+// FUNCIÓN CRÍTICA DE LECTURA MEJORADA: Codificación Robusta a UTF-8
 // =========================================================================
 /**
- * Lee el archivo, convierte su contenido a UTF-8, detecta el delimitador 
- * y normaliza los encabezados (minúsculas, sin acentos).
+ * Lee el archivo, convierte su contenido a UTF-8 de forma robusta, detecta el delimitador 
+ * y normaliza los encabezados (minúsculas, sin acentos) para la búsqueda.
  */
 function get_csv_file_info($filepath) {
     // 1. Leer todo el contenido del archivo
     $content = file_get_contents($filepath);
     if ($content === FALSE) return false;
 
-    // 2. Intentar la conversión a UTF-8 (Robustez ante codificaciones latinas)
-    // Se asume ISO-8859-1 (latin1) como la fuente más probable si no es UTF-8.
-    $converted_content = @iconv("ISO-8859-1", "UTF-8//IGNORE", $content);
-    if ($converted_content !== FALSE && $converted_content !== $content) {
-        $content = $converted_content;
+    // 2. Limpiar el Byte Order Mark (BOM) si existe y si el archivo ya está en UTF-8
+    if (substr($content, 0, 3) == "\xef\xbb\xbf") {
+        $content = substr($content, 3);
     }
     
-    // 3. Obtener la primera línea y el contenido de datos
-    $lines = explode("\n", $content);
+    // 3. Conversión de Codificación a UTF-8 (Robustez ante codificaciones latinas)
+    // Se prueban las codificaciones más comunes si no es UTF-8 válido.
+    $source_encodings = ['ISO-8859-1', 'Windows-1252', 'UTF-8'];
+    $converted_content = $content;
+
+    // Intentamos detectar y convertir solo si el contenido no parece ser UTF-8 válido
+    if (!mb_check_encoding($content, 'UTF-8')) {
+        foreach ($source_encodings as $encoding) {
+            // Convertimos si no es UTF-8 (el archivo original puede ser latin1 o win1252)
+            $test_conversion = @iconv($encoding, "UTF-8//IGNORE", $content);
+            if ($test_conversion !== FALSE) {
+                $converted_content = $test_conversion;
+                break;
+            }
+        }
+    }
+    
+    // 4. Obtener la primera línea y el contenido de datos
+    $lines = explode("\n", $converted_content);
     $first_line = array_shift($lines);
     $content_data_only = implode("\n", $lines); 
-
-    // 4. Limpiar el Byte Order Mark (BOM) si existe
-    if (substr($first_line, 0, 3) == "\xef\xbb\xbf") {
-        $first_line = substr($first_line, 3);
-    }
     
     // 5. Detección de delimitador: preferencia a punto y coma (;)
     $delimiter = (strpos($first_line, ';') !== false) ? ';' : ',';
     
-    // 6. Parsear la línea
+    // 6. Parsear la línea de encabezados
     $original_headers = str_getcsv($first_line, $delimiter);
     
-    // TABLA DE REEMPLAZO para acentos y eñes
+    // TABLA DE REEMPLAZO para normalizar (quitar acentos y eñes)
     $normalize_chars = [
         'á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ú' => 'u', 
         'Á' => 'A', 'É' => 'E', 'Í' => 'I', 'Ó' => 'O', 'Ú' => 'U',
-        'ñ' => 'n', 'Ñ' => 'N',
+        'ñ' => 'n', 'Ñ' => 'N', 'ü' => 'u', 'Ü' => 'U',
     ];
 
-    // Limpieza y NORMALIZACIÓN AGRESIVA:
+    // Limpieza y NORMALIZACIÓN: Minúsculas y sin acentos (SOLO para claves de búsqueda)
     $cleaned_headers = array_map(function($h) use ($normalize_chars) {
-        // 1. Eliminar tildes y eñes
+        // Asegurar que la limpieza se haga sobre UTF-8
         $h = strtr($h, $normalize_chars);
-        // 2. Quitar espacios y saltos de línea
         $h = trim(str_replace(["\r", "\n"], '', $h));
-        // 3. Convertir a minúsculas
         $h = strtolower($h);
         return $h;
     }, $original_headers);
 
     return [
         'content' => $content_data_only,
-        'cleaned_headers' => $cleaned_headers, // Usado para buscar (siempre sin tildes)
-        'original_headers' => $original_headers, // Usado para escribir la cabecera del archivo de salida
+        'cleaned_headers' => $cleaned_headers, // Usado para buscar
+        'original_headers' => $original_headers, // Usado para escribir la cabecera
         'delimiter' => $delimiter
     ];
 }
 
 // =========================================================================
-// Función para manejar la subida (copia del código anterior)
+// Función para manejar la subida (sin cambios)
 // =========================================================================
 function handle_upload($file_key, $upload_dir, &$error) {
     if (isset($_FILES[$file_key]) && $_FILES[$file_key]['error'] == UPLOAD_ERR_OK) {
         $tmp_name = $_FILES[$file_key]['tmp_name'];
-        $target_file = $upload_dir . uniqid() . '-' . basename($_FILES[$file_key]['name']) . '.csv';
+        // Usar hash para evitar nombres de archivo demasiado largos
+        $target_file = $upload_dir . hash('sha256', uniqid('', true)) . '.csv'; 
         
         if (move_uploaded_file($tmp_name, $target_file)) {
             return $target_file;
@@ -133,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             $listado_map = [];
             
-            // Procesamos el contenido del Listado B (ya sin encabezados) línea por línea
+            // Procesamos el contenido del Listado B (ya sin encabezados y en UTF-8) línea por línea
             $listado_rows = str_getcsv_lines($info_listado['content'], $delimiter_listado);
 
             // Encontrar índices de las columnas en Listado B (usando encabezados NORMALIZADOS sin tildes)
@@ -169,6 +178,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $handle_output = fopen($output_file, "w");
             if ($handle_output === FALSE) throw new Exception("Error al abrir archivos para escritura.");
 
+            // ✨ MEJORA CLAVE 2: Añadir Byte Order Mark (BOM) para forzar UTF-8 en Excel
+            fwrite($handle_output, "\xEF\xBB\xBF");
+
             fputcsv($handle_output, $headers_export_original, ','); // Escribir encabezados ORIGINALES con COMA estándar
 
             // Encontrar índices en Export Vehículos para la ACTUALIZACIÓN
@@ -179,7 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             if ($key_index_export === FALSE) throw new Exception("El archivo Export Vehículos no contiene la columna 'codvehiculo'.");
 
-            // Procesar el contenido de Export Vehículos (ya sin encabezados) línea por línea
+            // Procesar el contenido de Export Vehículos (ya sin encabezados y en UTF-8) línea por línea
             $export_rows = str_getcsv_lines($info_export['content'], $delimiter_export);
 
             // Procesar fila por fila (LEFT JOIN LÓGICO)
@@ -206,6 +218,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                     }
                 }
                 
+                // Los datos en $row ya están en UTF-8 gracias a get_csv_file_info
                 fputcsv($handle_output, $row, ','); // Escribir la fila con COMA como delimitador estándar
             }
             
@@ -227,9 +240,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 readfile($output_file);
                 
                 // Limpieza de archivos temporales
-                unlink($file_export_path);
-                unlink($file_listado_path);
-                unlink($output_file);
+                @unlink($file_export_path);
+                @unlink($file_listado_path);
+                @unlink($output_file);
 
                 exit;
             } else {
@@ -244,9 +257,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
     
     // Limpieza de archivos temporales si el proceso falló antes de la descarga
-    if (file_exists($file_export_path)) unlink($file_export_path);
-    if (file_exists($file_listado_path)) unlink($file_listado_path);
-    if (file_exists($output_file)) unlink($output_file);
+    if (file_exists($file_export_path)) @unlink($file_export_path);
+    if (file_exists($file_listado_path)) @unlink($file_listado_path);
+    if (file_exists($output_file)) @unlink($output_file);
 
 }
 
