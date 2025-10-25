@@ -4,29 +4,81 @@
     <meta charset="UTF-8">
     <title>Fusión de CSV (Solo PHP)</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 50px; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #007bff; border-radius: 8px; }
-        input[type="file"] { display: block; margin-bottom: 15px; }
-        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        p.info { color: #004085; background-color: #cce5ff; border: 1px solid #b8daff; padding: 10px; border-radius: 4px; }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 50px; 
+            position: relative; 
+            min-height: 100vh; 
+        }
+
+        .container { 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            border: 1px solid #007bff; 
+            border-radius: 8px; 
+            text-align: center; 
+        }
+
+        /* Imagen más pequeña */
+        .centered-image {
+            max-width: 40%;  /* Antes era 100%, ahora ocupa solo el 40% del contenedor */
+            height: auto;
+            display: block;
+            margin: 0 auto 15px;
+            border-radius: 50%;
+        }
+
+        input[type="file"] { 
+            display: block; 
+            margin-bottom: 15px; 
+        }
+
+        button { 
+            padding: 10px 20px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            border-radius: 5px; 
+            cursor: pointer; 
+        }
+
+        h1 { 
+            text-align: center; 
+        }
+
+        .copyright {
+            position: fixed;
+            bottom: 10px;
+            right: 20px;
+            font-size: 14px;
+            color: #555;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <img 
+            src="https://lh3.googleusercontent.com/p/AF1QipMaefHT5INA9KZIkYkifI13iFXGQZSjvZ1SVVtD=s1360-w1360-h1020-rw" 
+            alt="Logo de la aplicación" 
+            class="centered-image">
+
         <h1>Fusión de Datos de Vehículos (Solo PHP)</h1>
-        <p class="info">
-            ⚙️ **Este método de servidor garantiza el procesamiento de todas las filas del archivo principal, usando la clave `codvehiculo`
-        </p>
+
         <form action="merge_csv.php" method="post" enctype="multipart/form-data">
-            
-            <label for="export_vehiculos">Archivo 1 (Export Vehículos - **Principal**):</label>
+            <label for="export_vehiculos">Archivo 1 (Export Vehículos - <strong>Principal</strong>):</label>
             <input type="file" name="export_vehiculos" id="export_vehiculos" accept=".csv" required>
 
-            <label for="listado_b">Archivo 2 (Listado B - **Datos a fusionar**):</label>
+            <label for="listado_b">Archivo 2 (Listado B - <strong>Datos a fusionar</strong>):</label>
             <input type="file" name="listado_b" id="listado_b" accept=".csv" required>
             
             <button type="submit">Fusionar y Descargar</button>
         </form>
+    </div>
+
+    <div class="copyright">
+        © 2025 Gabriel y Jorge
     </div>
 </body>
 </html>
