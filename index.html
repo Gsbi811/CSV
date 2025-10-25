@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Fusión de CSV (Solo PHP)</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 50px; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #007bff; border-radius: 8px; }
+        input[type="file"] { display: block; margin-bottom: 15px; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        p.info { color: #004085; background-color: #cce5ff; border: 1px solid #b8daff; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Fusión de Datos de Vehículos (Solo PHP)</h1>
+        <p class="info">
+            ⚙️ **Este método de servidor garantiza el procesamiento de todas las filas del archivo principal, usando la clave `codvehiculo`
+        </p>
+        <form action="merge_csv.php" method="post" enctype="multipart/form-data">
+            
+            <label for="export_vehiculos">Archivo 1 (Export Vehículos - **Principal**):</label>
+            <input type="file" name="export_vehiculos" id="export_vehiculos" accept=".csv" required>
+
+            <label for="listado_b">Archivo 2 (Listado B - **Datos a fusionar**):</label>
+            <input type="file" name="listado_b" id="listado_b" accept=".csv" required>
+            
+            <button type="submit">Fusionar y Descargar</button>
+        </form>
+    </div>
+</body>
+</html>
