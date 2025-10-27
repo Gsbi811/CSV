@@ -4,8 +4,19 @@ set_time_limit(300); // 5 minutos de tiempo de ejecución
 ini_set('memory_limit', '512M'); // Límite de memoria
 
 $upload_dir = 'uploads/'; 
-$output_filename = 'export_vehiculos_fusionado_' . time() . '.csv';
-$output_file = $upload_dir . $output_filename; 
+$timestamp = time();
+// Nombres de archivo de salida
+$output_filename_comma = 'export_vehiculos_fusionado_COMMA_' . $timestamp . '.csv';
+$output_filename_semicolon = 'export_vehiculos_fusionado_SEMICOLON_' . $timestamp . '.csv';
+$output_file_comma = $upload_dir . $output_filename_comma; 
+$output_file_semicolon = $upload_dir . $output_filename_semicolon;
+
+// Definir qué archivo se descargará automáticamente y cuál tendrá un enlace
+$download_file = $output_file_semicolon;
+$download_filename = $output_filename_semicolon;
+$link_file = $output_file_comma;
+$link_filename = $output_filename_comma;
+
 
 // Asegurar que el directorio de subida existe
 if (!is_dir($upload_dir)) {
@@ -37,14 +48,11 @@ function get_csv_file_info($filepath) {
     }
     
     // 3. Conversión de Codificación a UTF-8 (Robustez ante codificaciones latinas)
-    // Se prueban las codificaciones más comunes si no es UTF-8 válido.
     $source_encodings = ['ISO-8859-1', 'Windows-1252', 'UTF-8'];
     $converted_content = $content;
 
-    // Intentamos detectar y convertir solo si el contenido no parece ser UTF-8 válido
     if (!mb_check_encoding($content, 'UTF-8')) {
         foreach ($source_encodings as $encoding) {
-            // Convertimos si no es UTF-8 (el archivo original puede ser latin1 o win1252)
             $test_conversion = @iconv($encoding, "UTF-8//IGNORE", $content);
             if ($test_conversion !== FALSE) {
                 $converted_content = $test_conversion;
@@ -73,7 +81,6 @@ function get_csv_file_info($filepath) {
 
     // Limpieza y NORMALIZACIÓN: Minúsculas y sin acentos (SOLO para claves de búsqueda)
     $cleaned_headers = array_map(function($h) use ($normalize_chars) {
-        // Asegurar que la limpieza se haga sobre UTF-8
         $h = strtr($h, $normalize_chars);
         $h = trim(str_replace(["\r", "\n"], '', $h));
         $h = strtolower($h);
@@ -142,10 +149,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             $listado_map = [];
             
-            // Procesamos el contenido del Listado B (ya sin encabezados y en UTF-8) línea por línea
             $listado_rows = str_getcsv_lines($info_listado['content'], $delimiter_listado);
 
-            // Encontrar índices de las columnas en Listado B (usando encabezados NORMALIZADOS sin tildes)
             $key_index_b = array_search('codvehiculo', $headers_listado_cleaned);
             $matricula_index_b = array_search('matricula', $headers_listado_cleaned);
             $bastidor_index_b = array_search('bastidor', $headers_listado_cleaned);
@@ -155,15 +160,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 throw new Exception("El archivo Listado B no contiene la columna 'codvehiculo'. Encabezados detectados: " . implode(' | ', $headers_listado_cleaned));
             }
 
-            // Llenar el mapa de Listado B
             foreach ($listado_rows as $row) {
                 if (empty(array_filter($row))) continue; 
                 
                 if (isset($row[$key_index_b])) {
-                    // LIMPIEZA CRÍTICA DE LA CLAVE: trim() para eliminar espacios
                     $key = trim($row[$key_index_b]);
                     
-                    // Almacenar solo las columnas necesarias (limpiando espacios alrededor de los valores)
                     $listado_map[$key] = [
                         'matricula' => trim($row[$matricula_index_b] ?? ''),
                         'bastidor' => trim($row[$bastidor_index_b] ?? ''),
@@ -173,15 +175,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             
             
-            // --- 3. FUSIÓN: Procesar Export Vehículos y escribir el resultado ---
+            // --- 3. FUSIÓN y ESCRITURA: Procesar Export Vehículos y escribir los DOS resultados ---
 
-            $handle_output = fopen($output_file, "w");
-            if ($handle_output === FALSE) throw new Exception("Error al abrir archivos para escritura.");
+            // Abrir ambos archivos de salida
+            $handle_output_comma = fopen($output_file_comma, "w");
+            $handle_output_semicolon = fopen($output_file_semicolon, "w");
+            
+            if ($handle_output_comma === FALSE || $handle_output_semicolon === FALSE) {
+                throw new Exception("Error al abrir archivos para escritura.");
+            }
 
-            // ✨ MEJORA CLAVE 2: Añadir Byte Order Mark (BOM) para forzar UTF-8 en Excel
-            fwrite($handle_output, "\xEF\xBB\xBF");
+            // Añadir Byte Order Mark (BOM) a ambos para forzar UTF-8
+            fwrite($handle_output_comma, "\xEF\xBB\xBF");
+            fwrite($handle_output_semicolon, "\xEF\xBB\xBF");
 
-            fputcsv($handle_output, $headers_export_original, ','); // Escribir encabezados ORIGINALES con COMA estándar
+            // Escribir encabezados ORIGINALES
+            fputcsv($handle_output_comma, $headers_export_original, ','); 
+            fputcsv($handle_output_semicolon, $headers_export_original, ';'); // Usar ';' para Excel
 
             // Encontrar índices en Export Vehículos para la ACTUALIZACIÓN
             $key_index_export = array_search('codvehiculo', $headers_export_cleaned); 
@@ -191,8 +201,15 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             
             if ($key_index_export === FALSE) throw new Exception("El archivo Export Vehículos no contiene la columna 'codvehiculo'.");
 
-            // Procesar el contenido de Export Vehículos (ya sin encabezados y en UTF-8) línea por línea
             $export_rows = str_getcsv_lines($info_export['content'], $delimiter_export);
+            
+            // Establecer el límite de fecha para la comparación
+            $limite_fecha_str = '2019-01-01'; // Usar formato YYYY-MM-DD
+            $timestamp_limite = strtotime($limite_fecha_str);
+            
+            if ($timestamp_limite === FALSE) {
+                 throw new Exception("Error al procesar la fecha límite de comparación.");
+            }
 
             // Procesar fila por fila (LEFT JOIN LÓGICO)
             foreach ($export_rows as $row) {
@@ -201,65 +218,100 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
                 $processed_rows++;
                 
                 $key = trim($row[$key_index_export]); 
+                
+                // Inicializar el valor de la fecha de salida a comprobar (el original del export)
+                $current_fechasalida = ($fechasalida_index_export !== FALSE) 
+                                         ? ($row[$fechasalida_index_export] ?? '') 
+                                         : '';
 
                 if (isset($listado_map[$key])) {
                     $match = $listado_map[$key];
                     $merged_rows++;
                     
-                    // LÓGICA DE ACTUALIZACIÓN (Solo si el índice existe y el valor no está vacío)
+                    // LÓGICA DE ACTUALIZACIÓN: Se actualizan los campos en $row
                     if ($matricula_index_export !== FALSE && !empty($match['matricula'])) {
                         $row[$matricula_index_export] = $match['matricula'];
                     }
                     if ($bastidor_index_export !== FALSE && !empty($match['bastidor'])) {
                         $row[$bastidor_index_export] = $match['bastidor'];
                     }
+                    
+                    // Si el Listado B tiene una fechasalida, se actualiza y ese es el valor a comprobar
                     if ($fechasalida_index_export !== FALSE && !empty($match['fechasalida'])) {
                         $row[$fechasalida_index_export] = $match['fechasalida'];
+                        $current_fechasalida = $match['fechasalida']; 
                     }
                 }
                 
-                // Los datos en $row ya están en UTF-8 gracias a get_csv_file_info
-                fputcsv($handle_output, $row, ','); // Escribir la fila con COMA como delimitador estándar
+                // ====================================================================
+                //  ✨ LÓGICA DE FECHA: Vaciar 'fechasalida' si es anterior a '01/01/2019'
+                // ====================================================================
+                // Verificamos si el campo fechasalida existe en el archivo y no está vacío
+                if ($fechasalida_index_export !== FALSE && !empty($current_fechasalida)) {
+                    
+                    // 1. Convertir la fecha de salida a timestamp
+                    $timestamp_salida = strtotime($current_fechasalida);
+                    
+                    // 2. Realizar la comparación: Si la fecha se pudo convertir y es ANTERIOR al límite
+                    if ($timestamp_salida !== FALSE && $timestamp_salida < $timestamp_limite) {
+                        // Establecer el valor a vacío en el array de la fila
+                        $row[$fechasalida_index_export] = '';
+                    }
+                }
+                // ====================================================================
+
+                // Escribir la fila en AMBOS archivos de salida
+                fputcsv($handle_output_comma, $row, ','); // Delimitador COMA (LibreOffice/Estándar)
+                fputcsv($handle_output_semicolon, $row, ';'); // Delimitador PUNTO Y COMA (Excel)
             }
             
-            fclose($handle_output);
+            fclose($handle_output_comma);
+            fclose($handle_output_semicolon);
             
-            // --- 4. DESCARGA ---
+            // --- 4. DESCARGA (Descarga automática del archivo SEMICOLON y enlace para el COMMA) ---
             
-            if (file_exists($output_file)) {
-                // Headers para forzar la descarga
+            if (file_exists($download_file)) {
+                // Headers para forzar la descarga del primer archivo (SEMICOLON/Excel)
                 header('Content-Description: File Transfer');
                 header('Content-Type: application/csv');
-                header('Content-Disposition: attachment; filename="' . $output_filename . '"');
+                header('Content-Disposition: attachment; filename="' . $download_filename . '"');
                 header('Expires: 0');
                 header('Cache-Control: must-revalidate');
                 header('Pragma: public');
-                header('Content-Length: ' . filesize($output_file));
-                ob_clean();
-                flush();
-                readfile($output_file);
+                header('Content-Length: ' . filesize($download_file));
                 
-                // Limpieza de archivos temporales
+                // Limpieza de archivos temporales ANTES de la descarga
                 @unlink($file_export_path);
                 @unlink($file_listado_path);
-                @unlink($output_file);
-
-                exit;
+                
+                // La descarga de los archivos CSV y la limpieza se realiza después.
+                // Es CRÍTICO que la descarga se inicie AHORA y no se imprima HTML.
+                ob_clean();
+                flush();
+                readfile($download_file);
+                
+                // NOTA: Para limpiar el segundo archivo (el que no se descargó), 
+                // necesitamos que el usuario regrese o se haga una limpieza en otro script.
+                // Dejaremos la limpieza en el `finally` o al final del script.
+                
+                exit; // Terminar el script inmediatamente después de la descarga
             } else {
-                throw new Exception("El archivo de salida no se pudo generar.");
+                throw new Exception("El archivo de salida para la descarga automática no se pudo generar.");
             }
 
         } catch (Exception $e) {
             $error = "Error durante el proceso de fusión: " . $e->getMessage();
+            // Limpieza de los archivos de salida generados si hubo un error
+            @unlink($output_file_comma);
+            @unlink($output_file_semicolon);
         }
     } else {
         $error = "Fallo en la subida de uno o ambos archivos: " . $error;
     }
     
-    // Limpieza de archivos temporales si el proceso falló antes de la descarga
+    // Limpieza de archivos de subida si el proceso falló antes de la descarga
     if (file_exists($file_export_path)) @unlink($file_export_path);
     if (file_exists($file_listado_path)) @unlink($file_listado_path);
-    if (file_exists($output_file)) @unlink($output_file);
 
 }
 
@@ -281,7 +333,21 @@ function str_getcsv_lines($content, $delimiter) {
     return $rows;
 }
 
-// Mostrar el mensaje de error o éxito si la descarga no se pudo iniciar
+// ====================================================================
+// Mostrar el mensaje de error o éxito
+// ====================================================================
+
+// La URL base para el enlace (ajusta si la carpeta 'uploads' no está al nivel del script)
+$base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://{$_SERVER['HTTP_HOST']}/";
+$link_url = $base_url . $upload_dir . $link_filename;
+
+// Si no hay error, se asume que el archivo principal se descargó
+$success_message = "<p style='color: green; font-weight: bold;'>✅ Proceso de fusión completado. Se procesaron {$processed_rows} filas y se actualizaron {$merged_rows} registros.</p>";
+$download_info = "<p>El archivo para **Excel** (`" . htmlspecialchars($download_filename) . "`) debería haberse descargado automáticamente.</p>";
+$link_info = "<p>Descargue la versión para **LibreOffice/Estándar** (separador coma) aquí: <a href='" . htmlspecialchars($link_url) . "' target='_blank' download='" . htmlspecialchars($link_filename) . "'>Descargar " . htmlspecialchars($link_filename) . "</a></p>";
+$cleanup_warning = "<p style='color: orange; font-style: italic; font-size: 0.9em;'>Nota: Los archivos generados en la carpeta `uploads/` se deben limpiar periódicamente.</p>";
+
+
 echo "<!DOCTYPE html>
 <html lang='es'>
 <head><meta charset='UTF-8'><title>Resultado de Fusión</title></head>
@@ -289,9 +355,14 @@ echo "<!DOCTYPE html>
     <div class='container' style='text-align: center; max-width: 600px; margin: 50px auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px;'>
         <h1>Resultado del Proceso</h1>
         " . ($error ? "<p style='color: red; font-weight: bold;'>❌ ERROR: {$error}</p>" : 
-                       "<p style='color: green; font-weight: bold;'>✅ Proceso de fusión completado. Se procesaron {$processed_rows} filas y se actualizaron {$merged_rows} registros. (Verifique si la descarga se inició automáticamente).</p>") . "
+                       $success_message . $download_info . $link_info . $cleanup_warning) . "
         <p><a href='index.html'>Volver al formulario</a></p>
     </div>
 </body>
 </html>";
+
+// Limpieza del archivo que se descargó automáticamente (esto es un intento de buena práctica, 
+// pero readfile() ya lo ha enviado. Un cron job o script de limpieza es mejor para archivos en `uploads/`).
+@unlink($download_file);
+
 ?>
